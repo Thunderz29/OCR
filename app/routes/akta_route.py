@@ -1,0 +1,124 @@
+from fastapi import APIRouter, UploadFile, File
+from typing import Optional
+
+from app.services.ocr_service import (
+    extract_text_with_boxes,
+)
+from app.parsers.akta_parser import parse_akta
+from app.schemas.akta_response import AktaResponse
+
+from app.schemas.generic_response import (
+    GenericResponse,
+    ErrorDetail
+)
+
+import shutil
+import os
+import logging
+import time
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+@router.post("/ocr/akta", response_model=GenericResponse)
+async def ocr_akta(
+    file: UploadFile = File(...)
+):
+    """
+    Extract data from Akta Kelahiran (Birth Certificate) image
+    """
+    
+    try:
+        os.makedirs(
+            "uploads",
+            exist_ok=True
+        )
+
+        file_location = (
+            f"uploads/{file.filename}"
+        )
+
+        # Validate file
+        if not file.filename:
+            return GenericResponse(
+                status="error",
+                code=400,
+                message="File name is required",
+                error=ErrorDetail(
+                    code="INVALID_FILE",
+                    message="File name cannot be empty"
+                )
+            )
+
+        with open(
+                file_location,
+                "wb"
+        ) as buffer:
+
+            shutil.copyfileobj(
+                file.file,
+                buffer
+            )
+
+        # Measure OCR elapsed time
+        ocr_start_time = time.time()
+        boxes = extract_text_with_boxes(
+            file_location
+        )
+        ocr_elapsed_time = time.time() - ocr_start_time
+
+        if not boxes:
+            return GenericResponse(
+                status="error",
+                code=422,
+                message="No text detected in image",
+                error=ErrorDetail(
+                    code="NO_TEXT_DETECTED",
+                    message="OCR could not extract any text from the image"
+                )
+            )
+
+        # Calculate accuracy percentage
+        confidences = [box["confidence"] for box in boxes if "confidence" in box]
+        accuracy = (sum(confidences) / len(confidences)) * 100 if confidences else 0.0
+        accuracy = round(accuracy, 2)
+
+        result = parse_akta(
+            boxes
+        )
+
+        return GenericResponse(
+            status="success",
+            code=200,
+            message="Akta data extracted successfully",
+            data=result,
+            raw_text=boxes,
+            accuracy_percentage=accuracy,
+            elapsed_time=round(ocr_elapsed_time, 3)
+        )
+
+    except FileNotFoundError as e:
+        logger.error(f"File not found: {str(e)}")
+        return GenericResponse(
+            status="error",
+            code=404,
+            message="File not found",
+            error=ErrorDetail(
+                code="FILE_NOT_FOUND",
+                message=str(e)
+            )
+        )
+
+    except Exception as e:
+        logger.error(f"Error processing Akta: {str(e)}")
+        return GenericResponse(
+            status="error",
+            code=500,
+            message="Internal server error",
+            error=ErrorDetail(
+                code="INTERNAL_ERROR",
+                message=str(e)
+            )
+        )
