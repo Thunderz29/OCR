@@ -31,7 +31,7 @@ def parse_kp(boxes):
 
     rows = group_rows(
         boxes,
-        tolerance=20
+        tolerance=40
     )
 
     lines = []
@@ -64,7 +64,7 @@ def parse_kp(boxes):
         # NAMA
         # -------------------
         match = re.search(
-            r'^NAMA\s+(.+)$',
+            r'^NAMA\s*[:]?\s+(.+)$',
             line
         )
 
@@ -79,7 +79,7 @@ def parse_kp(boxes):
         # NISN
         # -------------------
         match = re.search(
-            r'^NISN\s+(\d{10})$',
+            r'^NISN\s*[:]?\s*(\d{10})$',
             line
         )
 
@@ -93,7 +93,7 @@ def parse_kp(boxes):
         # NIS
         # -------------------
         match = re.search(
-            r'^NIS\s+(\d+)$',
+            r'^NIS\s*[:]?\s*(\d+)$',
             line
         )
 
@@ -107,7 +107,7 @@ def parse_kp(boxes):
         # TTL
         # -------------------
         match = re.search(
-            r'^TEMPAT\/TANGGAL LAHIR\s+(.+?),\s*(.+)$',
+            r'^TEMPAT.*?LAHIR\s*[:]?\s*(.+?)[,.]?\s*(\d{1,2}[\s\-/]+[A-Z0-9]+[\s\-/]+\d{4})$',
             line
         )
 
@@ -127,7 +127,7 @@ def parse_kp(boxes):
         # ALAMAT
         # -------------------
         match = re.search(
-            r'^ALAMAT\s+(.+)$',
+            r'^ALAMAT\s*[:]?\s+(.+)$',
             line
         )
 
@@ -142,7 +142,7 @@ def parse_kp(boxes):
         # KELAS
         # -------------------
         match = re.search(
-            r'^KELAS\s+(.+)$',
+            r'^KELAS\s*[:]?\s+(.+)$',
             line
         )
 
@@ -157,7 +157,7 @@ def parse_kp(boxes):
         # TINGKAT
         # -------------------
         match = re.search(
-            r'^TINGKAT\s+(.+)$',
+            r'^TINGKAT\s*[:]?\s+(.+)$',
             line
         )
 
@@ -172,7 +172,7 @@ def parse_kp(boxes):
         # JURUSAN
         # -------------------
         match = re.search(
-            r'^JURUSAN\s+(.+)$',
+            r'^JURUSAN\s*[:]?\s+(.+)$',
             line
         )
 
@@ -187,7 +187,7 @@ def parse_kp(boxes):
         # TAHUN AJARAN
         # -------------------
         match = re.search(
-            r'^TAHUN AJARAN\s+(.+)$',
+            r'^TAHUN AJARAN\s*[:]?\s+(.+)$',
             line
         )
 
@@ -204,7 +204,7 @@ def parse_kp(boxes):
 
     for line in lines:
 
-        if "KEPALA SEKOLAH" in line:
+        if "KEPALA SEKOLAH" in line or "LAHIR" in line:
             continue
 
         match = re.search(
