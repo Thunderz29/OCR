@@ -17,9 +17,9 @@ class GenericResponse(BaseModel):
     code: int  # HTTP status code
     message: str
     data: Optional[Any] = None
-    raw_text: Optional[Any] = None
     accuracy_percentage: Optional[float] = None
-    elapsed_time: Optional[float] = None  # Elapsed time in seconds for OCR scanning
+    elapsed_time: Optional[float] = None
+    raw_text: Optional[Any] = None
     error: Optional[ErrorDetail] = None
 
 
