@@ -3,7 +3,7 @@ from app.extractors.kk_table_extractor import (
     join_row_text
 )
 
-from app.utils.kk_normalizer import (
+from app.utils.normalizer import (
     normalize_text
 )
 
