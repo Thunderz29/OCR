@@ -1,4 +1,4 @@
-from rapidfuzz import process
+from app.fuzzy.base_matcher import fuzzy_match
 
 
 NATIONALITIES = [
@@ -9,16 +9,21 @@ NATIONALITIES = [
 
 def match_nationality(value):
 
-    if value is None:
+    if not value:
         return None
 
-    result = process.extractOne(
-        value,
-        NATIONALITIES,
-        score_cutoff=70
+    value = value.upper()
+
+    # Fast path
+    if "WNI" in value:
+        return "WNI"
+
+    if "WNA" in value:
+        return "WNA"
+
+    # Fallback OCR rusak
+    return fuzzy_match(
+        value=value,
+        choices=NATIONALITIES,
+        score_cutoff=75
     )
-
-    if result:
-        return result[0]
-
-    return value

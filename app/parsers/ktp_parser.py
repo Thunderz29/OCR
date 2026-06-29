@@ -195,18 +195,13 @@ def parse_ktp(boxes):
 
     if jk:
 
-        jk_match = re.search(
-            r"LAKI[\s\-]?LAKI|PEREMPUAN",
-            jk
-        )
+        jk = jk.upper()
 
-        if jk_match:
+        if "LAKI" in jk:
+            data.jenis_kelamin = match_gender("LAKI-LAKI")
 
-            data.jenis_kelamin = (
-                match_gender(
-                    jk_match.group()
-                )
-            )
+        elif "PEREM" in jk:
+            data.jenis_kelamin = match_gender("PEREMPUAN")
 
     # ==========================
     # GOL DARAH

@@ -7,7 +7,6 @@ from app.services.ocr_service import (
 from app.parsers.ktp_parser import parse_ktp
 from app.schemas.ktp_response import KtpResponse
 from app.preprocess.image_preprocess import preprocess_image
-from app.cropper.ktp_cropper import crop_ktp_fields
 from app.schemas.generic_response import (
     GenericResponse,
     ErrorDetail

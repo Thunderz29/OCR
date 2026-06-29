@@ -55,6 +55,39 @@ def parse_kp(boxes):
         print(line)
 
     # =====================
+    # NAMA SEKOLAH
+    # =====================
+    kartu_pelajar_idx = -1
+    for i, line in enumerate(lines):
+        line_no_space = line.replace(" ", "")
+        if "KARTUPELAJAR" in line_no_space or "KARTUTANDAPELAJAR" in line_no_space:
+            kartu_pelajar_idx = i
+            break
+            
+    if kartu_pelajar_idx > 0:
+        sekolah_lines = []
+        for i in range(kartu_pelajar_idx):
+            line = lines[i]
+            line_no_space = line.replace(" ", "")
+            
+            if "PEMERINTAH" in line_no_space or "DINAS" in line_no_space or "KEMENTERIAN" in line_no_space or "KEMENERIAN" in line_no_space:
+                continue
+            if line_no_space.startswith("JL") or line_no_space.startswith("JALAN") or "ALAMAT" in line_no_space or "WEBSITE" in line_no_space or "EMAIL" in line_no_space:
+                continue
+            if line_no_space.startswith("KAB.") or line_no_space.startswith("KOTA"):
+                continue
+            
+            long_keywords = ["SEKOLAH", "MADRASAH", "NEGERI", "SWASTA", "YAYASAN", "ISLAM", "KATHOLIK", "KRISTEN", "TERPADU"]
+            has_long = any(k in line_no_space for k in long_keywords)
+            has_short = re.search(r'\b(SD|SMP|SMA|SMK|MIN|MTS|MAN|IT)\b', line)
+            
+            if has_long or has_short:
+                sekolah_lines.append(line)
+                
+        if sekolah_lines:
+            data.nama_sekolah = " ".join(sekolah_lines)
+
+    # =====================
     # EXTRACT PER LINE
     # =====================
 

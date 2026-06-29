@@ -1,4 +1,4 @@
-from rapidfuzz import process
+from app.fuzzy.base_matcher import fuzzy_match
 
 
 GENDERS = [
@@ -9,15 +9,21 @@ GENDERS = [
 
 def match_gender(value):
 
-    if value is None:
+    if not value:
         return None
 
-    result = process.extractOne(
-        value,
-        GENDERS
+    value = value.upper()
+
+    # Fast path
+    if "LAKI-LAKI" in value:
+        return "LAKI-LAKI"
+
+    if "PEREMPUAN" in value:
+        return "PEREMPUAN"
+
+    # Fallback untuk OCR yang rusak
+    return fuzzy_match(
+        value=value,
+        choices=GENDERS,
+        score_cutoff=60
     )
-
-    if result:
-        return result[0]
-
-    return value

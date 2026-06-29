@@ -1,4 +1,4 @@
-from rapidfuzz import process
+from app.fuzzy.base_matcher import fuzzy_match
 
 
 RELIGIONS = [
@@ -13,15 +13,8 @@ RELIGIONS = [
 
 def match_religion(value):
 
-    if value is None:
-        return None
-
-    result = process.extractOne(
-        value,
-        RELIGIONS
+    return fuzzy_match(
+        value=value,
+        choices=RELIGIONS,
+        score_cutoff=65
     )
-
-    if result:
-        return result[0]
-
-    return value

@@ -1,25 +1,20 @@
-from rapidfuzz import process
+from app.fuzzy.base_matcher import fuzzy_match
 
 
-STATUSES = [
+MARITAL_STATUSES = [
     "BELUM KAWIN",
     "KAWIN",
+    "KAWIN TERCATAT",
     "CERAI HIDUP",
-    "CERAI MATI"
+    "CERAI MATI",
+    "KAWIN BELUM TERCATAT"
 ]
 
 
 def match_marital_status(value):
 
-    if value is None:
-        return None
-
-    result = process.extractOne(
-        value,
-        STATUSES
+    return fuzzy_match(
+        value=value,
+        choices=MARITAL_STATUSES,
+        score_cutoff=60
     )
-
-    if result:
-        return result[0]
-
-    return value

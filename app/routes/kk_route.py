@@ -1,5 +1,4 @@
 from fastapi import APIRouter, UploadFile, File
-from typing import Optional
 
 from app.services.ocr_service import (
     extract_text,
@@ -9,7 +8,6 @@ from app.services.ocr_service import (
 from app.parsers.kk_parser import (
     parse_kk
 )
-from app.schemas.kk_response import KkResponse
 
 from app.schemas.generic_response import (
     GenericResponse,
