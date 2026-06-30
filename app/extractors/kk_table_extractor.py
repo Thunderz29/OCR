@@ -89,7 +89,11 @@ def extract_tanggal(text):
 
 
 def extract_table1_blocks(boxes):
-    rows = group_rows(boxes, tolerance=6)
+    if not boxes:
+        return []
+    max_y = max((box["y"] for box in boxes), default=1300)
+    tolerance = max(12, int(max_y * 0.008))
+    rows = group_rows(boxes, tolerance=tolerance)
     blocks = []
     current_block = []
     sudah_ada_nik = False
@@ -101,11 +105,23 @@ def extract_table1_blocks(boxes):
         if upper is None:
             continue
 
-        if "NAMA LENGKAP" in upper and "NIK" in upper:
+        # Trigger: header bisa dalam satu baris (PDF) ATAU terpecah ke dua baris (gambar).
+        # Cukup salah satu kata kunci header hadir untuk mulai membaca data.
+        is_header_row = (
+            ("NAMA LENGKAP" in upper and "NIK" in upper)  # satu baris (PDF)
+            or ("NAMA LENGKAP" in upper and not re.search(r'\d{16}', upper))  # baris pertama header split
+            or ("NO" in upper and "NIK" in upper and not re.search(r'\d{16}', upper))  # baris kedua header split
+        )
+        if is_header_row:
             mulai = True
             continue
 
         if not mulai:
+            continue
+
+        # Abaikan baris header kolom kedua yang mungkin terdeteksi di Table 1
+        header_keywords = ["KELAMIN", "LAHIR", "DARAH", "TEMPAT", "AGAMA", "PENDIDIKAN", "PEKERJAAN", "GOLONGAN"]
+        if any(kw in upper for kw in header_keywords) and not re.search(r'\d{16}', upper):
             continue
 
         if "STATUS HUBUNGAN" in upper or "STATUS PERKAWINAN" in upper:
@@ -206,12 +222,14 @@ def partition_table_boxes(boxes):
                 y_footer = y
 
     # Fallback jika marker tidak ditemukan
+    # Gunakan persentase dari Y maksimum dokumen agar scale-invariant
+    max_y = max((box["y"] for box in boxes), default=1300)
     if y_divider is None:
-        y_divider = 800
+        y_divider = int(max_y * 0.58)   # ~58% dari tinggi dokumen
     if y_header2 is None:
-        y_header2 = y_divider + 80
+        y_header2 = y_divider + int(max_y * 0.06)  # +6% toleransi header
     if y_footer is None:
-        y_footer = 1300
+        y_footer = int(max_y * 0.92)    # ~92% dari tinggi dokumen
 
     # Tabel 1: semua box DI ATAS baris header Tabel 2
     table1_boxes = [box for box in boxes if box["y"] < y_divider]
@@ -274,13 +292,60 @@ def extract_table1_data(boxes):
     return hasil
 
 
+def compute_column_boundaries(boxes):
+    """Hitung batas kolom X secara dinamis dari lebar dokumen.
+    Ini memastikan parser bekerja di semua resolusi (gambar kamera, scan, PDF rendering).
+    
+    Batas kolom KK Tabel 2 (dalam persentase lebar dokumen):
+    ┌─────────┬───────────┬──────────┬──────────┬──────────┬──────────┬──────────┐
+    │ Status  │ Tgl Kaw.  │ Hubungan │   KWN    │ No.Psp   │ No.Kit   │  Ayah   │  Ibu   │
+    │  0-13%  │  13-20%   │  20-30%  │  30-38%  │  38-46%  │  46-54%  │  54-72% │  72%+  │
+    └─────────┴───────────┴──────────┴──────────┴──────────┴──────────┴──────────┘
+    """
+    if not boxes:
+        return None
+
+    # Lebar dokumen = X maksimum dari seluruh boxes
+    max_x = max(box["x"] for box in boxes)
+    if max_x == 0:
+        return None
+
+    return {
+        "max_x": max_x,
+        "status_end":    max_x * 0.13,   # 0% – 13%
+        "tanggal_start": max_x * 0.13,   # 13% – 20%
+        "tanggal_end":   max_x * 0.20,
+        "hubungan_start":max_x * 0.20,   # 20% – 30%
+        "hubungan_end":  max_x * 0.30,
+        "kwn_start":     max_x * 0.30,   # 30% – 38%
+        "kwn_end":       max_x * 0.38,
+        "paspor_start":  max_x * 0.38,   # 38% – 46%
+        "paspor_end":    max_x * 0.46,
+        "kitap_start":   max_x * 0.46,   # 46% – 54%
+        "kitap_end":     max_x * 0.54,
+        "ayah_start":    max_x * 0.54,   # 54% – 72%
+        "ayah_end":      max_x * 0.72,
+        "ibu_start":     max_x * 0.72,   # 72% ke kanan
+    }
+
+
 def extract_table2_data(boxes):
     """Ekstrak data Tabel 2 (status perkawinan, hubungan keluarga, nama orang tua)
-    menggunakan partisi Y dinamis untuk menghindari kontaminasi dari Tabel 1 dan footer,
-    serta pemetaan kolom berdasarkan koordinat X relatif per baris."""
+    menggunakan: 
+    - Partisi Y dinamis untuk mencegah kontaminasi dari Tabel 1 dan footer.
+    - Batas kolom X berbasis PERSENTASE lebar dokumen (scale-invariant),
+      sehingga bekerja sama baiknya untuk gambar kamera, scan, maupun PDF."""
     _, table2_boxes = partition_table_boxes(boxes)
-    rows = group_rows(table2_boxes, tolerance=15)
+    max_y = max((box["y"] for box in boxes), default=1300)
+    tolerance = max(15, int(max_y * 0.012))
+    rows = group_rows(table2_boxes, tolerance=tolerance)
     hasil = []
+
+    # Hitung batas kolom dari semua boxes (bukan hanya table2) agar
+    # lebar dokumen terhitung secara akurat dari elemen paling kanan
+    col = compute_column_boundaries(boxes)
+    if col is None:
+        return []
 
     for y in sorted(rows):
         row = rows[y]
@@ -290,58 +355,67 @@ def extract_table2_data(boxes):
             continue
 
         # ==================
-        # STATUS PERKAWINAN (kolom kiri, x < 350)
+        # STATUS PERKAWINAN (kolom kiri, 0% – 13% lebar dokumen)
         # Harus ada untuk dianggap baris data yang valid
         # ==================
-        status_boxes = [b for b in row if b["x"] < 350]
+        status_boxes = [b for b in row if b["x"] < col["status_end"]]
         status_text = join_row_text(status_boxes)
         status_perkawinan = match_marital_status(status_text)
         if not status_perkawinan:
             continue  # baris kosong / header / footer — lewati
 
         # ==================
-        # STATUS HUBUNGAN KELUARGA (kolom tengah-kiri, 550 <= x < 800)
+        # TANGGAL PERKAWINAN (13% – 20%)
         # ==================
-        hubungan_boxes = [b for b in row if 550 <= b["x"] < 800]
+        tgl_boxes = [b for b in row if col["tanggal_start"] <= b["x"] < col["tanggal_end"]]
+        tanggal_perkawinan = normalize_text(join_row_text(tgl_boxes))
+        if tanggal_perkawinan in ["-", ""]:
+            tanggal_perkawinan = None
+
+        # ==================
+        # STATUS HUBUNGAN KELUARGA (20% – 30%)
+        # ==================
+        hubungan_boxes = [b for b in row if col["hubungan_start"] <= b["x"] < col["hubungan_end"]]
         hubungan_text = join_row_text(hubungan_boxes)
         hubungan_keluarga = match_family_relation(hubungan_text)
 
         # ==================
-        # KEWARGANEGARAAN (kolom tengah, 800 <= x < 1000)
+        # KEWARGANEGARAAN (30% – 38%)
         # ==================
-        kwn_boxes = [b for b in row if 800 <= b["x"] < 1000]
+        kwn_boxes = [b for b in row if col["kwn_start"] <= b["x"] < col["kwn_end"]]
         kewarganegaraan = match_nationality(join_row_text(kwn_boxes))
 
         # ==================
-        # NO. PASPOR (1000 <= x < 1220)
+        # NO. PASPOR (38% – 46%)
         # ==================
-        paspor = normalize_text(join_row_text([b for b in row if 1000 <= b["x"] < 1220]))
+        paspor = normalize_text(join_row_text([b for b in row if col["paspor_start"] <= b["x"] < col["paspor_end"]]))
         if paspor in ["-", ""]:
             paspor = None
 
         # ==================
-        # NO. KITAP (1220 <= x < 1450)
+        # NO. KITAP (46% – 54%)
         # ==================
-        kitap = normalize_text(join_row_text([b for b in row if 1220 <= b["x"] < 1450]))
+        kitap = normalize_text(join_row_text([b for b in row if col["kitap_start"] <= b["x"] < col["kitap_end"]]))
         if kitap in ["-", ""]:
             kitap = None
 
         # ==================
-        # NAMA AYAH (1450 <= x < 1900)
+        # NAMA AYAH (54% – 72%)
         # ==================
-        ayah = normalize_text(join_row_text([b for b in row if 1450 <= b["x"] < 1900]))
+        ayah = normalize_text(join_row_text([b for b in row if col["ayah_start"] <= b["x"] < col["ayah_end"]]))
         if ayah in ["-", ""]:
             ayah = None
 
         # ==================
-        # NAMA IBU (x >= 1900)
+        # NAMA IBU (72% ke kanan)
         # ==================
-        ibu = normalize_text(join_row_text([b for b in row if b["x"] >= 1900]))
+        ibu = normalize_text(join_row_text([b for b in row if b["x"] >= col["ibu_start"]]))
         if ibu in ["-", ""]:
             ibu = None
 
         hasil.append({
             "status_perkawinan": status_perkawinan,
+            "tanggal_perkawinan": tanggal_perkawinan,
             "hubungan_keluarga": hubungan_keluarga,
             "kewarganegaraan": kewarganegaraan,
             "no_paspor": paspor,
@@ -362,12 +436,13 @@ def merge_anggota_dan_detail(boxes):
             break
 
         detail = detail_list[i]
-        anggota.status_perkawinan = detail.get("status_perkawinan")
-        anggota.hubungan_keluarga = detail.get("hubungan_keluarga")
-        anggota.kewarganegaraan = detail.get("kewarganegaraan")
-        anggota.no_paspor = detail.get("no_paspor")
-        anggota.no_kitap = detail.get("no_kitap")
-        anggota.ayah = detail.get("ayah")
-        anggota.ibu = detail.get("ibu")
+        anggota.status_perkawinan  = detail.get("status_perkawinan")
+        anggota.tanggal_perkawinan = detail.get("tanggal_perkawinan")
+        anggota.hubungan_keluarga  = detail.get("hubungan_keluarga")
+        anggota.kewarganegaraan    = detail.get("kewarganegaraan")
+        anggota.no_paspor          = detail.get("no_paspor")
+        anggota.no_kitap           = detail.get("no_kitap")
+        anggota.ayah               = detail.get("ayah")
+        anggota.ibu                = detail.get("ibu")
 
     return anggota_list
