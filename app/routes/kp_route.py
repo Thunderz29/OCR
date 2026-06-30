@@ -1,4 +1,5 @@
 from fastapi import APIRouter, UploadFile, File
+from app.utils.file_validator import validate_upload_file
 
 from app.services.ocr_service import extract_boxes_from_file
 from app.parsers.kp_parser import parse_kp
@@ -31,30 +32,12 @@ async def ocr_kp(file: UploadFile = File(...)):
     try:
         os.makedirs("uploads", exist_ok=True)
 
-        if not file.filename:
-            return GenericResponse(
-                status="error",
-                code=400,
-                message="File name is required",
-                error=ErrorDetail(
-                    code="INVALID_FILE",
-                    message="File name cannot be empty"
-                )
-            )
+        # Validasi file: nama, ekstensi, dan ukuran (maks 1 MB)
+        validation_error = await validate_upload_file(file)
+        if validation_error:
+            return validation_error
 
-        # Validasi ekstensi file
         ext = os.path.splitext(file.filename)[1].lower()
-        if ext not in ALLOWED_EXTENSIONS:
-            return GenericResponse(
-                status="error",
-                code=400,
-                message=f"Format file tidak didukung: {ext}",
-                error=ErrorDetail(
-                    code="UNSUPPORTED_FORMAT",
-                    message=f"Gunakan salah satu format: {', '.join(ALLOWED_EXTENSIONS)}"
-                )
-            )
-
         file_location = f"uploads/{file.filename}"
         with open(file_location, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
