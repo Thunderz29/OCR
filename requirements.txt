@@ -7,3 +7,4 @@ numpy==1.24.3
 paddleocr==2.7.0.3
 rapidfuzz==3.6.0
 Pillow==10.1.0
+pymupdf==1.28.0

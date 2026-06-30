@@ -1,12 +1,7 @@
 from fastapi import APIRouter, UploadFile, File
-from typing import Optional
 
-from app.services.ocr_service import (
-    extract_text_with_boxes,
-)
+from app.services.ocr_service import extract_boxes_from_file
 from app.parsers.akta_parser import parse_akta
-from app.schemas.akta_response import AktaResponse
-
 from app.schemas.generic_response import (
     GenericResponse,
     ErrorDetail
@@ -21,26 +16,22 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp", ".pdf"}
+
 
 @router.post("/ocr/akta", response_model=GenericResponse)
 async def ocr_akta(
     file: UploadFile = File(...)
 ):
     """
-    Extract data from Akta Kelahiran (Birth Certificate) image
+    Extract data from Akta Kelahiran (Birth Certificate).
+    Mendukung format: JPG, PNG, BMP, TIFF, WEBP, PDF.
+    Untuk PDF, hanya halaman pertama yang diproses.
     """
-    
+
     try:
-        os.makedirs(
-            "uploads",
-            exist_ok=True
-        )
+        os.makedirs("uploads", exist_ok=True)
 
-        file_location = (
-            f"uploads/{file.filename}"
-        )
-
-        # Validate file
         if not file.filename:
             return GenericResponse(
                 status="error",
@@ -52,31 +43,37 @@ async def ocr_akta(
                 )
             )
 
-        with open(
-                file_location,
-                "wb"
-        ) as buffer:
-
-            shutil.copyfileobj(
-                file.file,
-                buffer
+        # Validasi ekstensi file
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            return GenericResponse(
+                status="error",
+                code=400,
+                message=f"Format file tidak didukung: {ext}",
+                error=ErrorDetail(
+                    code="UNSUPPORTED_FORMAT",
+                    message=f"Gunakan salah satu format: {', '.join(ALLOWED_EXTENSIONS)}"
+                )
             )
 
-        # Measure OCR elapsed time
+        file_location = f"uploads/{file.filename}"
+        with open(file_location, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        # Untuk Akta: hanya halaman pertama (page_mode="first")
+        # Akta biasanya 1 halaman, PDF maupun gambar
         ocr_start_time = time.time()
-        boxes = extract_text_with_boxes(
-            file_location
-        )
+        boxes = extract_boxes_from_file(file_location, page_mode="first")
         ocr_elapsed_time = time.time() - ocr_start_time
 
         if not boxes:
             return GenericResponse(
                 status="error",
                 code=422,
-                message="No text detected in image",
+                message="No text detected in file",
                 error=ErrorDetail(
                     code="NO_TEXT_DETECTED",
-                    message="OCR could not extract any text from the image"
+                    message="OCR could not extract any text from the file"
                 )
             )
 
@@ -85,9 +82,7 @@ async def ocr_akta(
         accuracy = (sum(confidences) / len(confidences)) * 100 if confidences else 0.0
         accuracy = round(accuracy, 2)
 
-        result = parse_akta(
-            boxes
-        )
+        result = parse_akta(boxes)
 
         return GenericResponse(
             status="success",
@@ -112,7 +107,7 @@ async def ocr_akta(
         )
 
     except Exception as e:
-        logger.error(f"Error processing Akta: {str(e)}")
+        logger.error(f"Error processing Akta: {str(e)})")
         return GenericResponse(
             status="error",
             code=500,

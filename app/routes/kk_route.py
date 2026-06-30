@@ -2,13 +2,10 @@ from fastapi import APIRouter, UploadFile, File
 
 from app.services.ocr_service import (
     extract_text,
-    extract_text_with_boxes,
+    extract_boxes_from_file,
 )
 
-from app.parsers.kk_parser import (
-    parse_kk
-)
-
+from app.parsers.kk_parser import parse_kk
 from app.schemas.generic_response import (
     GenericResponse,
     ErrorDetail
@@ -23,26 +20,22 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp", ".pdf"}
+
 
 @router.post("/ocr/kk", response_model=GenericResponse)
 async def ocr_kk(
     file: UploadFile = File(...)
 ):
     """
-    Extract data from KK (Kartu Keluarga) image
+    Extract data from KK (Kartu Keluarga).
+    Mendukung format: JPG, PNG, BMP, TIFF, WEBP, PDF.
+    Untuk PDF multi-halaman, semua halaman akan digabungkan.
     """
-    
+
     try:
-        os.makedirs(
-            "uploads",
-            exist_ok=True
-        )
+        os.makedirs("uploads", exist_ok=True)
 
-        file_location = (
-            f"uploads/{file.filename}"
-        )
-
-        # Validate file
         if not file.filename:
             return GenericResponse(
                 status="error",
@@ -54,58 +47,37 @@ async def ocr_kk(
                 )
             )
 
-        with open(
-                file_location,
-                "wb"
-        ) as buffer:
-
-            shutil.copyfileobj(
-                file.file,
-                buffer
-            )
-
-        # OCR text biasa
-        try:
-            raw_text = extract_text(
-                file_location
-            )
-        except RuntimeError as e:
+        # Validasi ekstensi file
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in ALLOWED_EXTENSIONS:
             return GenericResponse(
                 status="error",
-                code=503,
-                message="OCR service not available",
+                code=400,
+                message=f"Format file tidak didukung: {ext}",
                 error=ErrorDetail(
-                    code="OCR_NOT_CONFIGURED",
-                    message=str(e)
+                    code="UNSUPPORTED_FORMAT",
+                    message=f"Gunakan salah satu format: {', '.join(ALLOWED_EXTENSIONS)}"
                 )
             )
 
-        # OCR + koordinat - measure elapsed time
-        try:
-            ocr_start_time = time.time()
-            boxes = extract_text_with_boxes(
-                file_location
-            )
-            ocr_elapsed_time = time.time() - ocr_start_time
-        except RuntimeError as e:
-            return GenericResponse(
-                status="error",
-                code=503,
-                message="OCR service not available",
-                error=ErrorDetail(
-                    code="OCR_NOT_CONFIGURED",
-                    message=str(e)
-                )
-            )
+        file_location = f"uploads/{file.filename}"
+        with open(file_location, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        # OCR terpadu — otomatis handle PDF maupun gambar
+        # KK bisa multi-halaman → page_mode="all"
+        ocr_start_time = time.time()
+        boxes = extract_boxes_from_file(file_location, page_mode="all")
+        ocr_elapsed_time = time.time() - ocr_start_time
 
         if not boxes:
             return GenericResponse(
                 status="error",
                 code=422,
-                message="No text detected in image",
+                message="No text detected in file",
                 error=ErrorDetail(
                     code="NO_TEXT_DETECTED",
-                    message="OCR could not extract any text from the image"
+                    message="OCR could not extract any text from the file"
                 )
             )
 
@@ -114,9 +86,7 @@ async def ocr_kk(
         accuracy = (sum(confidences) / len(confidences)) * 100 if confidences else 0.0
         accuracy = round(accuracy, 2)
 
-        data = parse_kk(
-            boxes
-        )
+        data = parse_kk(boxes)
 
         return GenericResponse(
             status="success",
