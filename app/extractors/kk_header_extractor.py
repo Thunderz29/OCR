@@ -131,16 +131,7 @@ def extract_header_data(boxes):
                     candidates[0]["text"]
                 )
 
-                if value not in [
-                    "-",
-                    "-/",
-                    ": -/",
-                    "/"
-                ]:
-
-                    result[
-                        "rt_rw"
-                    ] = value
+                result["rt_rw"] = value.replace(":", "").strip()
 
         # ======================
         # KODE POS

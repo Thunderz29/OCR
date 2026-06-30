@@ -8,8 +8,17 @@ def fuzzy_match(value, choices, score_cutoff=75):
 
     value = value.upper().strip()
 
-    for choice in choices:
-        if choice in value:
+    # Safeguard: jika tidak ada karakter huruf sama sekali, langsung return None
+    # Mencegah string kosong / hanya angka / spasi cocok secara fuzzy
+    if not re.search(r"[A-Z]", value):
+        return None
+
+    # Coba exact match dengan letter-boundary lookaround
+    # Sort dari yang terpanjang dulu agar "KAWIN BELUM TERCATAT" tidak kalah dengan "KAWIN"
+    sorted_choices = sorted(choices, key=len, reverse=True)
+    for choice in sorted_choices:
+        pattern = r"(?<![A-Z])" + re.escape(choice.upper()) + r"(?![A-Z])"
+        if re.search(pattern, value):
             return choice
 
     cleaned = re.sub(r"\d+", " ", value)

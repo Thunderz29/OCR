@@ -168,8 +168,62 @@ def extract_table2_blocks(boxes):
     return blocks
 
 
+def partition_table_boxes(boxes):
+    """Pisahkan boxes secara spasial menjadi Tabel 1 dan Tabel 2
+    berdasarkan koordinat Y yang dideteksi secara dinamis dari konten dokumen.
+    Ini memastikan data antar-tabel tidak saling mencemari satu sama lain."""
+    y_divider = None
+    y_header2 = None
+    y_footer = None
+
+    for box in boxes:
+        text = normalize_text(box.get("text", ""))
+        if not text:
+            continue
+        t = text.upper()
+
+        # Batas atas Tabel 2: baris header status/hubungan/nama orang tua
+        if ("STATUS PERKAWINAN" in t or "STATUS HUBUNGAN" in t
+                or "NAMA ORANG TUA" in t or "DOKUMEN IMGRASI" in t
+                or "DOKUMEN IMIGRASI" in t):
+            y = box["y"]
+            if y_divider is None or y < y_divider:
+                y_divider = y
+
+        # Batas bawah header Tabel 2: baris nomor kolom (10), (11), ..., (17)
+        if re.search(r'\(\d+\)', t) or t in ["14)", "15)", "16)", "17)"]:
+            y = box["y"]
+            if (y_divider is not None and y > y_divider
+                    and y < y_divider + 100
+                    and (y_header2 is None or y > y_header2)):
+                y_header2 = y
+
+        # Batas footer: baris tanda tangan / tanggal dikeluarkan
+        if ("DIKELUARKAN TANGGAL" in t or "KEPALA DINAS" in t
+                or "LEMBAR" in t or "PENCATATAN SIPIL" in t):
+            y = box["y"]
+            if y_footer is None or y < y_footer:
+                y_footer = y
+
+    # Fallback jika marker tidak ditemukan
+    if y_divider is None:
+        y_divider = 800
+    if y_header2 is None:
+        y_header2 = y_divider + 80
+    if y_footer is None:
+        y_footer = 1300
+
+    # Tabel 1: semua box DI ATAS baris header Tabel 2
+    table1_boxes = [box for box in boxes if box["y"] < y_divider]
+    # Tabel 2: box ANTARA baris nomor kolom dan footer
+    table2_boxes = [box for box in boxes if y_header2 < box["y"] < y_footer]
+
+    return table1_boxes, table2_boxes
+
+
 def extract_table1_data(boxes):
-    blocks = extract_table1_blocks(boxes)
+    table1_boxes, _ = partition_table_boxes(boxes)
+    blocks = extract_table1_blocks(table1_boxes)
     hasil = []
     nomor = 1
 
@@ -182,24 +236,26 @@ def extract_table1_data(boxes):
             continue
 
         anggota.nik = extract_nik(text)
-        
+
         # Menggunakan fuzzy matcher untuk Jenis Kelamin
         anggota.jenis_kelamin = match_gender(text)
-        
+
         # ======================
-        # TEMPAT LAHIR
+        # TEMPAT LAHIR & TANGGAL LAHIR
         # ======================
+        anggota.tanggal_lahir = extract_tanggal(text)
         tempat_lahir = None
-        if anggota.jenis_kelamin:
-            match = re.search(
-                rf'{anggota.jenis_kelamin}\s+([A-Z ]+?)\s+\d{2}-\d{2}-\d{4}',
-                text
-            )
-            if match:
-                tempat_lahir = normalize_text(match.group(1))
+
+        if anggota.jenis_kelamin and anggota.tanggal_lahir:
+            jk_pos = text.find(anggota.jenis_kelamin)
+            tl_pos = text.find(anggota.tanggal_lahir)
+            if jk_pos != -1 and tl_pos != -1 and jk_pos < tl_pos:
+                middle_text = text[jk_pos + len(anggota.jenis_kelamin) : tl_pos].strip()
+                middle_text = re.sub(r'^[\d\s\W]+', '', middle_text)
+                if middle_text:
+                    tempat_lahir = normalize_text(middle_text)
 
         anggota.tempat_lahir = tempat_lahir
-        anggota.tanggal_lahir = extract_tanggal(text)
 
         # Menggunakan Fuzzy Matchers untuk data entitas
         anggota.agama = match_religion(text)
@@ -219,64 +275,80 @@ def extract_table1_data(boxes):
 
 
 def extract_table2_data(boxes):
-    rows = group_rows(boxes, tolerance=15)
+    """Ekstrak data Tabel 2 (status perkawinan, hubungan keluarga, nama orang tua)
+    menggunakan partisi Y dinamis untuk menghindari kontaminasi dari Tabel 1 dan footer,
+    serta pemetaan kolom berdasarkan koordinat X relatif per baris."""
+    _, table2_boxes = partition_table_boxes(boxes)
+    rows = group_rows(table2_boxes, tolerance=15)
     hasil = []
-    current_detail = None
 
     for y in sorted(rows):
         row = rows[y]
         row_text = join_row_text(row)
         upper = normalize_text(row_text.upper())
-
-        if upper is None:
+        if not upper:
             continue
 
-        if "DIKELUARKAN TANGGAL" in upper or "KEPALA DINAS" in upper:
-            break
-
-        # Menggunakan fuzzy match untuk mendeteksi anggota baru di tabel bawah
-        status_perkawinan = match_marital_status(upper)
-        if status_perkawinan:
-            if current_detail:
-                hasil.append(current_detail)
-
-            current_detail = {
-                "status_perkawinan": status_perkawinan,
-                "hubungan_keluarga": None,
-                "kewarganegaraan": None,
-                "ayah": None,
-                "ibu": None
-            }
-
-        if current_detail is None:
-            continue
-
-        # Hubungan Keluarga menggunakan Fuzzy Matcher
-        hubungan = match_family_relation(upper)
-        if hubungan:
-            current_detail["hubungan_keluarga"] = hubungan
-
-        # Kewarganegaraan menggunakan Fuzzy Matcher
-        kewarganegaraan = match_nationality(upper)
-        if kewarganegaraan:
-            current_detail["kewarganegaraan"] = kewarganegaraan
+        # ==================
+        # STATUS PERKAWINAN (kolom kiri, x < 350)
+        # Harus ada untuk dianggap baris data yang valid
+        # ==================
+        status_boxes = [b for b in row if b["x"] < 350]
+        status_text = join_row_text(status_boxes)
+        status_perkawinan = match_marital_status(status_text)
+        if not status_perkawinan:
+            continue  # baris kosong / header / footer — lewati
 
         # ==================
-        # AYAH (Berdasarkan Koordinat X)
+        # STATUS HUBUNGAN KELUARGA (kolom tengah-kiri, 550 <= x < 800)
         # ==================
-        ayah_text = [box["text"] for box in row if 1450 <= box["x"] < 1900]
-        if ayah_text:
-            current_detail["ayah"] = normalize_text(" ".join(ayah_text))
+        hubungan_boxes = [b for b in row if 550 <= b["x"] < 800]
+        hubungan_text = join_row_text(hubungan_boxes)
+        hubungan_keluarga = match_family_relation(hubungan_text)
 
         # ==================
-        # IBU (Berdasarkan Koordinat X)
+        # KEWARGANEGARAAN (kolom tengah, 800 <= x < 1000)
         # ==================
-        ibu_text = [box["text"] for box in row if box["x"] >= 1900]
-        if ibu_text:
-            current_detail["ibu"] = normalize_text(" ".join(ibu_text))
+        kwn_boxes = [b for b in row if 800 <= b["x"] < 1000]
+        kewarganegaraan = match_nationality(join_row_text(kwn_boxes))
 
-    if current_detail:
-        hasil.append(current_detail)
+        # ==================
+        # NO. PASPOR (1000 <= x < 1220)
+        # ==================
+        paspor = normalize_text(join_row_text([b for b in row if 1000 <= b["x"] < 1220]))
+        if paspor in ["-", ""]:
+            paspor = None
+
+        # ==================
+        # NO. KITAP (1220 <= x < 1450)
+        # ==================
+        kitap = normalize_text(join_row_text([b for b in row if 1220 <= b["x"] < 1450]))
+        if kitap in ["-", ""]:
+            kitap = None
+
+        # ==================
+        # NAMA AYAH (1450 <= x < 1900)
+        # ==================
+        ayah = normalize_text(join_row_text([b for b in row if 1450 <= b["x"] < 1900]))
+        if ayah in ["-", ""]:
+            ayah = None
+
+        # ==================
+        # NAMA IBU (x >= 1900)
+        # ==================
+        ibu = normalize_text(join_row_text([b for b in row if b["x"] >= 1900]))
+        if ibu in ["-", ""]:
+            ibu = None
+
+        hasil.append({
+            "status_perkawinan": status_perkawinan,
+            "hubungan_keluarga": hubungan_keluarga,
+            "kewarganegaraan": kewarganegaraan,
+            "no_paspor": paspor,
+            "no_kitap": kitap,
+            "ayah": ayah,
+            "ibu": ibu,
+        })
 
     return hasil
 
