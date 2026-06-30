@@ -288,8 +288,6 @@ def parse_new_akta(raw_boxes):
     for line in lines:
         line_upper = line.upper()
         line_upper = line_upper.replace("AY AH", "AYAH")
-        line_upper = line_upper.replace("AYAHAHMAD", "AYAH AHMAD")
-        line_upper = line_upper.replace("IBURIKA", "IBU RIKA")
         line_upper = line_upper.replace("DANIBU", "DAN IBU")
         
         if "DAN IBU" in line_upper and ("AYAH" in line_upper or "DARI" in line_upper):
