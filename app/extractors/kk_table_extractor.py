@@ -3,7 +3,6 @@ import re
 from app.schemas.kk_response import AnggotaKeluarga
 from app.utils.normalizer import normalize_text
 
-# Import Fuzzy Matchers Baru
 from app.fuzzy.blood_type_matcher import match_blood_type
 from app.fuzzy.education_matcher import match_education
 from app.fuzzy.family_relation_matcher import match_family_relation

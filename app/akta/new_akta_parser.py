@@ -64,7 +64,7 @@ YEAR_MAP = {
 }
 
 
-# Semua kata bulan dalam teks lahir (sebelum nama anak muncul)
+
 BIRTH_MONTH_SECTION_KEYWORDS = [
     "NOVEMBER", "OKTOBER", "SEPTEMBER", "AGUSTUS",
     "JULI", "JUNI", "MEI", "APRIL",
@@ -141,9 +141,8 @@ def normalize_text(text):
         "WESNBORN": "WES BORN",
         "THATIN": "THAT IN",
         "AHMADROZIKIN": "AHMAD ROZIKIN",
-        # Fix OCR typo: RIBUDUA -> RIBU DUA (tahun kelahiran)
         "RIBUDUA": "RIBU DUA",
-        "RIBU DUA PULUH": "RIBU DUA PULUH",  # pastikan tidak dobel
+        "RIBU DUA PULUH": "RIBU DUA PULUH",
         "AY AH": "AYAH",
     }
 
@@ -212,20 +211,15 @@ def parse_new_akta(raw_boxes):
 
     #
     # NAMA ANAK
-    # Strategi terbaik: cari baris yang ALL CAPS tepat sebelum baris "anak ke"
-    # karena pada akta baru, nama anak selalu berada di baris tersendiri sebelum baris anak ke
     #
     nama_anak_from_lines = None
 
     for i, line in enumerate(lines):
         upper = line.upper()
-        # Cari baris "anak ke ..." atau "child no ..."
         if upper.startswith("ANAK KE") or upper.startswith("CHILD NO"):
-            # Ambil baris sebelumnya yang ALL CAPS
             if i > 0:
                 prev = lines[i - 1]
                 prev_upper = prev.upper()
-                # Pastikan baris sebelumnya adalah ALL CAPS murni (nama anak)
                 if prev_upper == prev and len(prev.split()) >= 1:
                     nama_anak_from_lines = prev_upper
             break
@@ -233,7 +227,6 @@ def parse_new_akta(raw_boxes):
     if nama_anak_from_lines:
         data.nama_anak = nama_anak_from_lines.title()
     else:
-        # Fallback: cari dari baris ALL-CAPS yang bukan kata kunci
         candidate_names = []
 
         blacklist = [
@@ -290,24 +283,19 @@ def parse_new_akta(raw_boxes):
             )
 
     #
-    # AYAH & IBU (Line-Based Extraction)
-    # Mencari langsung dari lines agar tidak tercampur baris terjemahan bahasa Inggris di bawahnya
+    # AYAH & IBU
     #
     for line in lines:
         line_upper = line.upper()
-        # Normalisasi typo ayah/ibu pada baris ini
         line_upper = line_upper.replace("AY AH", "AYAH")
         line_upper = line_upper.replace("AYAHAHMAD", "AYAH AHMAD")
         line_upper = line_upper.replace("IBURIKA", "IBU RIKA")
         line_upper = line_upper.replace("DANIBU", "DAN IBU")
         
         if "DAN IBU" in line_upper and ("AYAH" in line_upper or "DARI" in line_upper):
-            # Ekstrak Ayah
             ayah_match = re.search(r"AYAH\s+(.+?)\s+DAN\s+IBU", line_upper)
             if ayah_match:
                 data.nama_ayah = ayah_match.group(1).strip().title()
-            
-            # Ekstrak Ibu
             idx = line_upper.find("DAN IBU")
             if idx != -1:
                 ibu_part = line_upper[idx + 7:].strip()
@@ -316,7 +304,6 @@ def parse_new_akta(raw_boxes):
                     data.nama_ibu = ibu_part.title()
             break
 
-    # Fallback jika line-based extraction tidak berhasil
     if not data.nama_ayah:
         ayah_match = re.search(
             r"AYAH\s+(.+?)\s+DAN\s+IBU",
@@ -344,17 +331,11 @@ def parse_new_akta(raw_boxes):
 
     #
     # TANGGAL LAHIR
-    # Harus diambil dari bagian "BAHWA DI ... PADA TANGGAL {DAY} {MONTH} {YEAR}"
-    # BUKAN dari bagian "Pada tanggal" penerbitan akta (DUA MEI DUA RIBU DUA PULUH EMPAT)
     #
 
-    #
-    # HARI LAHIR — ambil dari konteks "PADA TANGGAL {DAY}" di bagian lahir
-    # yaitu setelah BAHWA DI dan sebelum TELAH LAHIR
-    #
+
     day = None
 
-    # Cari pola: BAHWA DI ... PADA TANGGAL {DAY}
     lahir_section_match = re.search(
         r"BAHWA DI.+?PADA TANGGAL\s+([A-Z\s]+?)\s+(?:TELAH LAHIR|WES BORN|" +
         "|".join(BIRTH_MONTH_SECTION_KEYWORDS) + r")",
@@ -363,7 +344,6 @@ def parse_new_akta(raw_boxes):
 
     if lahir_section_match:
         day_candidate = lahir_section_match.group(1).strip()
-        # Cari di DAY_MAP (sorted by length desc agar multi-kata lebih dulu)
         for key in sorted(DAY_MAP.keys(), key=len, reverse=True):
             if day_candidate.startswith(key):
                 day = DAY_MAP[key]
@@ -371,20 +351,14 @@ def parse_new_akta(raw_boxes):
         if not day:
             day = DAY_MAP.get(day_candidate)
     else:
-        # Fallback: "PADA TANGGAL {DAY}" pertama yang diikuti nama bulan
         for key in sorted(DAY_MAP.keys(), key=len, reverse=True):
             pattern = rf"PADA TANGGAL {re.escape(key)}\s+(?:{chr(124).join(BIRTH_MONTH_SECTION_KEYWORDS)})"
             if re.search(pattern, text):
                 day = DAY_MAP[key]
                 break
 
-    #
-    # BULAN LAHIR — harus bulan yang muncul di bagian lahir (sebelum nama anak)
-    # bukan bulan penerbitan (MEI di bagian kutipan)
-    #
     month = None
 
-    # Ambil teks dari BAHWA DI sampai ANAK KE / CHILD NO untuk isolasi bagian lahir
     birth_section_match = re.search(
         r"BAHWA DI.+?(?:ANAK KE|CHILD NO)",
         text
@@ -401,9 +375,6 @@ def parse_new_akta(raw_boxes):
             month = value
             break
 
-    #
-    # TAHUN LAHIR — "DUA RIBU DUA PULUH X" pertama di bagian lahir
-    #
     year = None
 
     year_match = re.search(

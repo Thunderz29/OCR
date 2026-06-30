@@ -16,10 +16,7 @@ def clean_header_value(value):
     return value
 
 def extract_header_data(boxes):
-    """
-    Ekstrak data header KK (Kepala Keluarga, Alamat, RT/RW, Kode Pos, Desa, Kecamatan, Kab, Prov)
-    secara dinamis tanpa koordinat X absolut.
-    """
+
     result = {
         "kepala_keluarga": None,
         "alamat": None,
