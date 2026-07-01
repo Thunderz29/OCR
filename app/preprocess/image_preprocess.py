@@ -1,27 +1,21 @@
 import cv2
+import numpy as np
 
 
-def preprocess_image(image_path):
-
+def preprocess_image(image_path: str) -> np.ndarray:
     image = cv2.imread(image_path)
 
-    # grayscale
-    gray = cv2.cvtColor(
-        image,
-        cv2.COLOR_BGR2GRAY
-    )
+    if image is None:
+        raise ValueError(f"Gagal membaca gambar: {image_path}")
 
-    # resize 2x
-    gray = cv2.resize(
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    upscaled = cv2.resize(
         gray,
         None,
         fx=2,
         fy=2,
-        interpolation=cv2.INTER_CUBIC
+        interpolation=cv2.INTER_CUBIC,
     )
 
-    output_path = image_path.replace(".", "_processed.")
-
-    cv2.imwrite(output_path, gray)
-
-    return output_path
+    return upscaled

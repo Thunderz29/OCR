@@ -10,9 +10,9 @@ from app.schemas.generic_response import GenericResponse, ErrorDetail
 # Ekstensi yang diizinkan
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp", ".pdf"}
 
-# Batas ukuran file: 1 MB
-MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024  # 1 MB
-MAX_FILE_SIZE_LABEL = "1 MB"
+# Batas ukuran file: 2 MB
+MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024  # 2 MB
+MAX_FILE_SIZE_LABEL = "2 MB"
 
 
 async def validate_upload_file(file: UploadFile) -> GenericResponse | None:
